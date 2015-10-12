@@ -1,167 +1,223 @@
 package apns
 
 import (
+	"bytes"
 	"crypto/tls"
-	"errors"
+	"encoding/base64"
+	"encoding/binary"
 	"net"
 	"strings"
 	"time"
 )
 
-var _ APNSClient = &Client{}
+const (
+	GATEWAY          = "gateway.push.apple.com:2195"
+	FEEDBACK         = "feedback.push.apple.com:2196"
+	SANDBOX_GATEWAY  = "gateway.sandbox.push.apple.com:2195"
+	SANDBOX_FEEDBACK = "feedback.sandbox.push.apple.com:2196"
+)
 
-// APNSClient is an APNS client.
-type APNSClient interface {
-	ConnectAndWrite(resp *PushNotificationResponse, payload []byte) (err error)
-	Send(pn *PushNotification) (resp *PushNotificationResponse)
-}
-
-// Client contains the fields necessary to communicate
-// with Apple, such as the gateway to use and your
-// certificate contents.
-//
-// You'll need to provide your own CertificateFile
-// and KeyFile to send notifications. Ideally, you'll
-// just set the CertificateFile and KeyFile fields to
-// a location on drive where the certs can be loaded,
-// but if you prefer you can use the CertificateBase64
-// and KeyBase64 fields to store the actual contents.
 type Client struct {
-	Gateway           string
-	CertificateFile   string
-	CertificateBase64 string
-	KeyFile           string
-	KeyBase64         string
+	Gateway  string
+	KeyFile  string
+	CertFile string
+
+	connection    net.Conn
+	tlsConnection net.Conn
 }
 
-// BareClient can be used to set the contents of your
-// certificate and key blocks manually.
-func BareClient(gateway, certificateBase64, keyBase64 string) (c *Client) {
-	c = new(Client)
-	c.Gateway = gateway
-	c.CertificateBase64 = certificateBase64
-	c.KeyBase64 = keyBase64
-	return
-}
-
-// NewClient assumes you'll be passing in paths that
-// point to your certificate and key.
-func NewClient(gateway, certificateFile, keyFile string) (c *Client) {
-	c = new(Client)
-	c.Gateway = gateway
-	c.CertificateFile = certificateFile
-	c.KeyFile = keyFile
-	return
-}
-
-// Send connects to the APN service and sends your push notification.
-// Remember that if the submission is successful, Apple won't reply.
-func (client *Client) Send(pn *PushNotification) (resp *PushNotificationResponse) {
-	resp = new(PushNotificationResponse)
-
-	payload, err := pn.ToBytes()
-	if err != nil {
-		resp.Success = false
-		resp.Error = err
-		return
-	}
-
-	err = client.ConnectAndWrite(resp, payload)
-	if err != nil {
-		resp.Success = false
-		resp.Error = err
-		return
-	}
-
-	resp.Success = true
-	resp.Error = nil
-
-	return
-}
-
-// ConnectAndWrite establishes the connection to Apple and handles the
-// transmission of your push notification, as well as waiting for a reply.
-//
-// In lieu of a timeout (which would be available in Go 1.1)
-// we use a timeout channel pattern instead. We start two goroutines,
-// one of which just sleeps for TimeoutSeconds seconds, while the other
-// waits for a response from the Apple servers.
-//
-// Whichever channel puts data on first is the "winner". As such, it's
-// possible to get a false positive if Apple takes a long time to respond.
-// It's probably not a deal-breaker, but something to be aware of.
-func (client *Client) ConnectAndWrite(resp *PushNotificationResponse, payload []byte) (err error) {
-	var cert tls.Certificate
-
-	if len(client.CertificateBase64) == 0 && len(client.KeyBase64) == 0 {
-		// The user did not specify raw block contents, so check the filesystem.
-		cert, err = tls.LoadX509KeyPair(client.CertificateFile, client.KeyFile)
+// MARK: Struct's constructors
+func CreatePushClient(certFile string, keyFile string, isSandbox bool) *Client {
+	// Decide which endpoint to use
+	var gateway string
+	if !isSandbox {
+		gateway = GATEWAY
 	} else {
-		// The user provided the raw block contents, so use that.
-		cert, err = tls.X509KeyPair([]byte(client.CertificateBase64), []byte(client.KeyBase64))
+		gateway = SANDBOX_GATEWAY
 	}
 
+	client := Client{
+		Gateway:  gateway,
+		KeyFile:  keyFile,
+		CertFile: certFile,
+	}
+	return &client
+}
+func CreateFeedbackClient(certFile string, keyFile string, isSandbox bool) *Client {
+	// Decide which endpoint to use
+	var gateway string
+	if !isSandbox {
+		gateway = FEEDBACK
+	} else {
+		gateway = SANDBOX_FEEDBACK
+	}
+
+	client := Client{
+		Gateway:  gateway,
+		KeyFile:  keyFile,
+		CertFile: certFile,
+	}
+	return &client
+}
+
+/**
+ * Read feedback from Apple.
+ */
+func (c *Client) GetFeedback() ([]*Feedback, error) {
+	// Connect to apple push server
+	err := c.dial()
+	defer c.close()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	gatewayParts := strings.Split(client.Gateway, ":")
-	conf := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		ServerName:   gatewayParts[0],
+	var feedbacks []*Feedback
+
+	// Read feedback
+	timesSamp := uint32(0)
+	tokenLength := uint16(0)
+	tokenBuffer := make([]byte, 32)
+	messageBuffer := make([]byte, 38)
+	for {
+		binaryLength, err := c.tlsConnection.Read(messageBuffer)
+		if binaryLength == 38 {
+			reader := bytes.NewReader(messageBuffer)
+			binary.Read(reader, binary.BigEndian, &timesSamp)
+			binary.Read(reader, binary.BigEndian, &tokenLength)
+			binary.Read(reader, binary.BigEndian, &tokenBuffer)
+
+			feedback := &Feedback{
+				Timestamp:   time.Unix(int64(timesSamp), 0),
+				DeviceToken: base64.StdEncoding.EncodeToString(tokenBuffer),
+			}
+			feedbacks = append(feedbacks, feedback)
+		}
+
+		// Terminate loop if there is nothing else to do
+		if err != nil {
+			break
+		}
+	}
+	return feedbacks, nil
+}
+
+/**
+ * Send single or multiple messages.
+ */
+func (c *Client) SendMessage(apns []*Message) *Response {
+	/* Condition validation */
+	if apns == nil || len(apns) == 0 {
+		return &Response{
+			Success:     false,
+			Description: SHUTDOWN,
+		}
 	}
 
-	conn, err := net.Dial("tcp", client.Gateway)
+	// Connect to apple push server
+	err := c.dial()
+	defer c.close()
 	if err != nil {
-		return err
-	}
-	defer conn.Close()
-
-	tlsConn := tls.Client(conn, conf)
-	err = tlsConn.Handshake()
-	if err != nil {
-		return err
-	}
-	defer tlsConn.Close()
-
-	_, err = tlsConn.Write(payload)
-	if err != nil {
-		return err
+		return &Response{
+			Success:     false,
+			Description: SHUTDOWN,
+		}
 	}
 
-	// Create one channel that will serve to handle
-	// timeouts when the notification succeeds.
+	// Write message
+	buffer := make([]byte, int(apns[0].Length()))
+	for _, apn := range apns {
+		reader, _ := apn.Encode()
+		reader.Read(buffer)
+
+		_, err := c.tlsConnection.Write(buffer)
+		if err != nil {
+			return &Response{
+				Success:     false,
+				Description: PROCESSING_ERROR,
+			}
+		}
+	}
+
+	// Read result
+	responseChannel := make(chan []byte, 1)
 	timeoutChannel := make(chan bool, 1)
 	go func() {
-		time.Sleep(time.Second * TimeoutSeconds)
+		end, _ := c.tlsConnection.Read(buffer)
+		responseChannel <- buffer[:end]
+	}()
+	go func() {
+		time.Sleep(time.Second * 5)
 		timeoutChannel <- true
 	}()
 
-	// This channel will contain the binary response
-	// from Apple in the event of a failure.
-	responseChannel := make(chan []byte, 1)
-	go func() {
-		buffer := make([]byte, 6, 6)
-		tlsConn.Read(buffer)
-		responseChannel <- buffer
-	}()
-
-	// First one back wins!
-	// The data structure for an APN response is as follows:
-	//
-	// command    -> 1 byte
-	// status     -> 1 byte
-	// identifier -> 4 bytes
-	//
-	// The first byte will always be set to 8.
+	/**
+	 * First one back wins! The data structure for an APN response is as follows:
+	 * command    -> 1 byte (will always be set to 8)
+	 * status     -> 1 byte
+	 * identifier -> 4 bytes
+	 */
+	response := &Response{}
 	select {
 	case r := <-responseChannel:
-		resp.Success = false
-		resp.AppleResponse = ApplePushResponses[r[1]]
-		err = errors.New(resp.AppleResponse)
+		response.Success = false
+		response.Description = ResponseCodes[r[1]]
+
 	case <-timeoutChannel:
-		resp.Success = true
+		response.Success = true
+		response.Description = NO_ERRORS
 	}
 
-	return err
+	return response
+}
+
+// MARK: Struct's private functions
+/**
+ * Close connection with apple push server.
+ */
+func (c *Client) close() {
+	if c.tlsConnection != nil {
+		c.tlsConnection.Close()
+		c.tlsConnection = nil
+	}
+
+	if c.connection != nil {
+		c.connection.Close()
+		c.connection = nil
+	}
+}
+
+/**
+ * Open connection with apple push server.
+ */
+func (c *Client) dial() error {
+	// Load keypair
+	kp, err := tls.LoadX509KeyPair(c.CertFile, c.KeyFile)
+	if err != nil {
+		return err
+	}
+
+	// Config TLS
+	tokens := strings.Split(c.Gateway, ":")
+	config := &tls.Config{
+		Certificates: []tls.Certificate{kp},
+		ServerName:   tokens[0],
+	}
+
+	// Connect to Apple gateway
+	conn, err := net.Dial("tcp", c.Gateway)
+	if err != nil {
+		return err
+	} else {
+		c.connection = conn
+	}
+
+	// Handshake
+	tlsConn := tls.Client(conn, config)
+	err = tlsConn.Handshake()
+	if err != nil {
+		return err
+	} else {
+		c.tlsConnection = tlsConn
+		return nil
+	}
 }
