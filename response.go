@@ -17,7 +17,7 @@ var ReasonCodes = map[string]string{
 	"BadCertificateEnvironment": "The client certificate was for the wrong environment.",
 	"BadCertificate":            "The certificate was bad.",
 	"Forbidden":                 "The specified action is not allowed.",
-	"BadPath":                   "The request contained a bad :path value.",
+	"BadPath":                   "The request contained a bad path value.",
 	"MethodNotAllowed":          "The specified :method was not POST.",
 	"TooManyRequests":           "Too many requests were made consecutively to the same device token.",
 	"IdleTimeout":               "Idle time out.",

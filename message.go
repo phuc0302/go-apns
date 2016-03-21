@@ -57,22 +57,27 @@ type Message struct {
 }
 
 // CreateMessage returns a default message
-func CreateMessage(deviceID string, deviceToken string, apnsTopic string, payload Payload) *Message {
-	/* Condition validation */
-	if len(deviceID) == 0 || len(deviceToken) == 0 || len(apnsTopic) == 0 {
-		return nil
+func CreateMessage(deviceID string, deviceToken string, apnsTopic string, payload Payload) (*Message, error) {
+	/* Condition validation: validate deviceToken */
+	if len(deviceToken) == 0 {
+		return nil, fmt.Errorf("MissingDeviceToken")
 	}
 
-	/* Condition validation: validate payload */
-	alertString, ok := payload.Alert.(string)
-	if ok && len(alertString) == 0 {
-		return nil
-	} else if !ok {
-		_, ok := payload.Alert.(Alert)
-		if !ok {
-			return nil
-		}
+	/* Condition validation: validate apnsTopic */
+	if len(apnsTopic) == 0 {
+		return nil, fmt.Errorf("MissingTopic")
 	}
+
+	// /* Condition validation: validate payload */
+	// alertString, ok := payload.Alert.(string)
+	// if ok && len(alertString) == 0 {
+	// 	return nil
+	// } else if !ok {
+	// 	_, ok := payload.Alert.(Alert)
+	// 	if !ok {
+	// 		return nil
+	// 	}
+	// }
 
 	if payload.Badge == 0 {
 		payload.Badge = 1
@@ -84,7 +89,7 @@ func CreateMessage(deviceID string, deviceToken string, apnsTopic string, payloa
 	/* Condition validation: Validate decoded device's token */
 	token, _ := base64.StdEncoding.DecodeString(deviceToken)
 	if len(token) != 32 {
-		return nil
+		return nil, fmt.Errorf("BadDeviceToken")
 	}
 
 	// Finalize
@@ -100,20 +105,22 @@ func CreateMessage(deviceID string, deviceToken string, apnsTopic string, payloa
 	}
 
 	message.payload["aps"] = payload
-	return &message
+	return &message, nil
 }
 
 // Encode prepares the HTTP/2 request to send to Apple.
-func (m *Message) Encode(gateway string) *http.Request {
+func (m *Message) Encode(gateway string) (*http.Request, error) {
 	/* Condition validation: validate gateway */
 	if len(gateway) == 0 {
-		return nil
+		return nil, fmt.Errorf("ServiceUnavailable")
 	}
 
 	// Encode payload
 	payload, err := json.Marshal(m.payload)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("PayloadEmpty")
+	} else if len(payload) > PayloadSize {
+		return nil, fmt.Errorf("PayloadTooLarge")
 	}
 
 	// Prepare request
@@ -125,7 +132,7 @@ func (m *Message) Encode(gateway string) *http.Request {
 	request.Header.Set("apns-priority", fmt.Sprintf("%d", m.ApnsPriority))
 	request.Header.Set("apns-expiration", fmt.Sprintf("%d", m.ApnsExpiration))
 
-	return request
+	return request, nil
 }
 
 // SetField adds custom key-value pair to the message's payload.

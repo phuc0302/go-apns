@@ -82,37 +82,60 @@ func CreateClient(certFile string, password string, isSandbox bool) (*Client, er
 }
 
 // SendMessages delivers push message to Apple.
-func (c *Client) SendMessages(apns []*Message) []*Response {
+func (c *Client) SendMessages(messages []*Message) []*Response {
 	/* Condition validation */
-	if len(apns) == 0 {
+	if len(messages) == 0 {
 		return nil
 	}
 
-	responses := make([]*Response, len(apns))
-	for idx, apn := range apns {
-		request := apn.Encode(c.gateway)
+	responses := make([]*Response, len(messages))
+	for idx, message := range messages {
+		// Encode message
+		request, err := message.Encode(c.gateway)
 
-		res, err := c.client.Do(request)
-		defer res.Body.Close()
-		fmt.Println(err)
+		// Create response nomatter what
+		response := &Response{}
+		responses[idx] = response
 
-		response := Response{}
-		response.ApnsID = res.Header.Get("apns-id")
-		response.deviceID = apn.deviceID
-		response.deviceToken = base64.StdEncoding.EncodeToString(apn.deviceToken)
+		// Define required info
+		response.ApnsID = message.ApnsID
+		response.deviceID = message.deviceID
+		response.deviceToken = base64.StdEncoding.EncodeToString(message.deviceToken)
 
-		response.Status = res.StatusCode
-		response.StatusDescription = StatusCodes[res.StatusCode]
+		/* Condition validation: validate encoding process */
+		if err != nil {
+			response.Status = 400
+			response.StatusDescription = StatusCodes[400]
 
-		if res.StatusCode != 200 {
-			decoder := json.NewDecoder(res.Body)
-			err = decoder.Decode(&response)
-
-			if err == nil {
-				response.ReasonDescription = ReasonCodes[response.Reason]
-			}
+			response.Reason = err.Error()
+			response.ReasonDescription = ReasonCodes[err.Error()]
+			continue
 		}
-		responses[idx] = &response
+
+		// Send response to Apple server
+		res, err := c.client.Do(request)
+		if err == nil {
+			defer res.Body.Close()
+
+			// Define response status
+			response.Status = res.StatusCode
+			response.StatusDescription = StatusCodes[res.StatusCode]
+
+			if res.StatusCode != 200 {
+				decoder := json.NewDecoder(res.Body)
+				err = decoder.Decode(&response)
+
+				if err == nil {
+					response.ReasonDescription = ReasonCodes[response.Reason]
+				}
+			}
+		} else {
+			response.Status = 503
+			response.StatusDescription = StatusCodes[503]
+
+			response.Reason = "ServiceUnavailable"
+			response.ReasonDescription = ReasonCodes["ServiceUnavailable"]
+		}
 	}
 	return responses
 }
