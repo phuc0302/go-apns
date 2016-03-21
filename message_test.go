@@ -1,120 +1,125 @@
 package apns
 
 import (
-	"encoding/json"
+	"encoding/base64"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
+
+	"gopkg.in/mgo.v2/bson"
 )
 
 func TestCreateMessage(t *testing.T) {
-	message := CreateMessage("", "")
+	message, _ := CreateMessage("", "", "", Payload{})
 	if message != nil {
-		t.Errorf("Expect nil but found %s when asign invalid token", message)
+		t.Error("Expected nil when define invalid device's id.")
 	}
 
-	message = CreateMessage("YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYW", "")
+	message, _ = CreateMessage(bson.NewObjectId().Hex(), "", "", Payload{})
 	if message != nil {
-		t.Errorf("Expect nil but found %s when asign not base64 token", message)
+		t.Error("Expected nil when define invalid device's token.")
 	}
 
-	message = CreateMessage("YWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWFhYWE=", "")
-	if message.OsVersion != "7.0" {
-		t.Errorf("Expect 7.0 but found %s when asign empty os version value", message.OsVersion)
+	message, _ = CreateMessage(bson.NewObjectId().Hex(), "C4XOCR6kmbH4XJ9fMRm1hyt1iL7f0wqfJENdgTDdx+A=", "", Payload{})
+	if message != nil {
+		t.Error("Expected nil when define invalid message's topic.")
+	}
+
+	// message, _ = CreateMessage(bson.NewObjectId().Hex(), "C4XOCR6kmbH4XJ9fMRm1hyt1iL7f0wqfJENdgTDdx+A=", "com.example.appID", Payload{})
+	// if message != nil {
+	// 	t.Error("Expected nil when define invalid message's payload.")
+	// }
+
+	deviceID := bson.NewObjectId().Hex()
+	message, _ = CreateMessage(deviceID, "C4XOCR6kmbH4XJ9fMRm1hyt1iL7f0wqfJENdgTDdx+A=", "com.example.appID",
+		Payload{
+			Alert: "Sample alert",
+		})
+
+	if message == nil {
+		t.Error("Expected not nil when everything had been defined.")
+	}
+	if message.ApnsID == "" {
+		t.Error("Expected ApnsID not nil.")
+	}
+	if message.ApnsTopic != "com.example.appID" {
+		t.Errorf("Expected ApnsTopic is: %s but found: %s", "com.example.appID", message.ApnsTopic)
+	}
+	if message.ApnsPriority != PriorityHigh {
+		t.Errorf("Expected ApnsPriority is: %d but found: %d", PriorityHigh, message.ApnsPriority)
+	}
+	if message.ApnsExpiration <= time.Now().UTC().Unix() {
+		t.Errorf("Expected ApnsExpiration is greater than: %d but found: %d", time.Now().UTC().Unix(), message.ApnsExpiration)
+	}
+
+	if message.deviceID != deviceID {
+		t.Errorf("Expected deviceID: %s but found: %s.", deviceID, message.deviceID)
+	}
+	if base64.StdEncoding.EncodeToString(message.deviceToken) != "C4XOCR6kmbH4XJ9fMRm1hyt1iL7f0wqfJENdgTDdx+A=" {
+		t.Errorf("Expected deviceToken: %s but found: %s.", "C4XOCR6kmbH4XJ9fMRm1hyt1iL7f0wqfJENdgTDdx+A=", base64.StdEncoding.EncodeToString(message.deviceToken))
+	}
+
+	if message.payload["aps"] == nil {
+		t.Error("Expected aps not nil.")
+
+		aps, ok := message.payload["aps"].(Payload)
+		if ok {
+			if aps.Badge != 1 {
+				t.Errorf("Expected Badge is: %d but found: %d", 1, aps.Badge)
+			}
+			if aps.Sound != "Default" {
+				t.Errorf("Expected Sound is: %s but found: %s", "Default", aps.Sound)
+			}
+		} else {
+			t.Error("Expected aps must be instance of Payload")
+		}
+
 	}
 }
 
-func TestLength(t *testing.T) {
-	message := CreateMessage("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXpBQkNERUY=", "")
-	payload, _ := json.Marshal(message.payload)
+func TestEncode(t *testing.T) {
+	deviceID := bson.NewObjectId().Hex()
+	message, _ := CreateMessage(deviceID, "C4XOCR6kmbH4XJ9fMRm1hyt1iL7f0wqfJENdgTDdx+A=", "com.example.appID",
+		Payload{
+			Alert: "Sample alert",
 
-	if message.Length() != uint32(61+len(payload)) {
-		t.Errorf("Expect message length is %d but found %d", 61+len(payload), message.Length())
+			ContentAvailable: 1,
+		})
+
+	request, _ := message.Encode("")
+	if request != nil {
+		t.Error("Expected nil when define empty gateway.")
 	}
 
-	// Encode message with payload
-	message.SetPayload(&Payload{
-		Alert: "Alert message",
-		Badge: 0,
-		Sound: "Default",
-	})
-	reader, _ := message.Encode()
-
-	bytes := make([]byte, 512)
-	length, _ := reader.Read(bytes)
-
-	if uint32(length) != message.Length() {
-		t.Errorf("Expect message length is %d but found %d", length, message.Length())
-	}
-}
-
-func TestEncodeWithoutPayload(t *testing.T) {
-	message := CreateMessage("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXpBQkNERUY=", "")
-	reader, _ := message.Encode()
-
-	if reader != nil {
-		t.Error("Expect nil when encode no payload message but found not nil")
-	}
-
-	// Asign nil also do the same thing
-	message.SetPayload(nil)
-	reader, _ = message.Encode()
-
-	if reader != nil {
-		t.Error("Expect nil when encode no payload message but found not nil")
-	}
-
-	// Asign empty payload also do the same thing
-	message.SetPayload(&Payload{})
-	reader, _ = message.Encode()
-
-	if reader != nil {
-		t.Error("Expect nil when encode no payload message but found not nil")
-	}
-}
-
-func TestEncodeWithDefaultPayload(t *testing.T) {
-	message := CreateMessage("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXpBQkNERUY=", "")
-	message.SetPayload(&Payload{
-		Alert: "Alert message",
-	})
-	reader, _ := message.Encode()
-
-	if reader == nil {
-		t.Error("Expect not nil when encode but found nil")
+	request, _ = message.Encode(SandboxGateway)
+	if request == nil {
+		t.Error("Expected not nil.")
 	} else {
-		payload := message.payload["aps"].(*Payload)
-
-		if payload == nil {
-			t.Error("Expect payload not nil but found nil")
+		if strings.ToLower(request.Method) != "post" {
+			t.Errorf("Expected method is: %s but found: %s", "POST", request.Method)
+		}
+		if request.URL.Host != SandboxGateway {
+			t.Errorf("Expected host is: %s but found: %s", SandboxGateway, request.URL.Host)
+		}
+		if request.URL.Path != fmt.Sprintf("/3/device/%x", message.deviceToken) {
+			t.Errorf("Expected host is: %s but found: %s", fmt.Sprintf("/3/device/%x", message.deviceToken), request.URL.Path)
 		}
 
-		if payload.Alert != "Alert message" {
-			t.Errorf("Expect %s but found %s", "Alert message", payload.Alert)
+		if request.Header.Get("content-type") != "application/json; charset=utf-8" {
+			t.Errorf("Expected host is: %s but found: %s", "application/json; charset=utf-8", request.Header.Get("content-type"))
 		}
-
-		if payload.Badge != 1 {
-			t.Errorf("Expect %d but found %d", 1, payload.Badge)
+		if request.Header.Get("apns-id") != message.ApnsID {
+			t.Errorf("Expected host is: %s but found: %s", message.ApnsID, request.Header.Get("apns-id"))
 		}
-
-		if payload.Sound != "Default" {
-			t.Errorf("Expect %s but found %s", "Default", payload.Sound)
+		if request.Header.Get("apns-topic") != message.ApnsTopic {
+			t.Errorf("Expected host is: %s but found: %s", message.ApnsTopic, request.Header.Get("apns-topic"))
 		}
-	}
-}
-
-func TestEncodeExceedLengthForOS7(t *testing.T) {
-	message := CreateMessage("YWJjZGVmZ2hpamtsbW5vcHFyc3R1dnd4eXpBQkNERUY=", "")
-	message.SetPayload(&Payload{
-		Alert: "Alert message",
-		Badge: 0,
-		Sound: "Default",
-	})
-	for i := 0; i < 100; i++ {
-		message.SetField(fmt.Sprintf("Key %d", i), "Value")
-	}
-	reader, _ := message.Encode()
-
-	if reader != nil {
-		t.Error("Expect nil when encode no exceeded message but found not nil")
+		if request.Header.Get("apns-priority") != fmt.Sprintf("%d", message.ApnsPriority) {
+			t.Errorf("Expected host is: %s but found: %s", fmt.Sprintf("%d", message.ApnsPriority), request.Header.Get("apns-priority"))
+		}
+		if request.Header.Get("apns-expiration") != fmt.Sprintf("%d", message.ApnsExpiration) {
+			t.Errorf("Expected host is: %s but found: %s", fmt.Sprintf("%d", message.ApnsExpiration), request.Header.Get("apns-expiration"))
+		}
 	}
 }
