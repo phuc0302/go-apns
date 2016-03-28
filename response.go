@@ -1,30 +1,57 @@
 package apns
 
+// Defines keys.
+const (
+	PayloadEmpty              = "PayloadEmpty"
+	PayloadTooLarge           = "PayloadTooLarge"
+	BadTopic                  = "BadTopic"
+	TopicDisallowed           = "TopicDisallowed"
+	BadMessageID              = "BadMessageId"
+	BadExpirationDate         = "BadExpirationDate"
+	BadPriority               = "BadPriority"
+	MissingDeviceToken        = "MissingDeviceToken"
+	BadDeviceToken            = "BadDeviceToken"
+	DeviceTokenNotForTopic    = "DeviceTokenNotForTopic"
+	Unregistered              = "Unregistered"
+	DuplicateHeaders          = "DuplicateHeaders"
+	BadCertificateEnvironment = "BadCertificateEnvironment"
+	BadCertificate            = "BadCertificate"
+	Forbidden                 = "Forbidden"
+	BadPath                   = "BadPath"
+	MethodNotAllowed          = "MethodNotAllowed"
+	TooManyRequests           = "TooManyRequests"
+	IdleTimeout               = "IdleTimeout"
+	Shutdown                  = "Shutdown"
+	InternalServerError       = "InternalServerError"
+	ServiceUnavailable        = "ServiceUnavailable"
+	MissingTopic              = "MissingTopic"
+)
+
 // ReasonCodes defines keys & descriptions.
 var ReasonCodes = map[string]string{
-	"PayloadEmpty":              "The message payload was empty.",
-	"PayloadTooLarge":           "The message payload was too large. The maximum payload size is 4096 bytes.",
-	"BadTopic":                  "The apns-topic was invalid.",
-	"TopicDisallowed":           "Pushing to this topic is not allowed.",
-	"BadMessageId":              "The apns-id value is bad.",
-	"BadExpirationDate":         "The apns-expiration value is bad.",
-	"BadPriority":               "The apns-priority value is bad.",
-	"MissingDeviceToken":        "The device token is not specified in the request :path. Verify that the :path header contains the device token.",
-	"BadDeviceToken":            "The specified device token was bad. Verify that the request contains a valid token and that the token matches the environment.",
-	"DeviceTokenNotForTopic":    "The device token does not match the specified topic.",
-	"Unregistered":              "The device token is inactive for the specified topic.",
-	"DuplicateHeaders":          "One or more headers were repeated.",
-	"BadCertificateEnvironment": "The client certificate was for the wrong environment.",
-	"BadCertificate":            "The certificate was bad.",
-	"Forbidden":                 "The specified action is not allowed.",
-	"BadPath":                   "The request contained a bad path value.",
-	"MethodNotAllowed":          "The specified :method was not POST.",
-	"TooManyRequests":           "Too many requests were made consecutively to the same device token.",
-	"IdleTimeout":               "Idle time out.",
-	"Shutdown":                  "The server is shutting down.",
-	"InternalServerError":       "An internal server error occurred.",
-	"ServiceUnavailable":        "The service is unavailable.",
-	"MissingTopic":              "The apns-topic header of the request was not specified and was required. The apns-topic header is mandatory when the client is connected using a certificate that supports multiple topics.",
+	PayloadEmpty:              "The message payload was empty.",
+	PayloadTooLarge:           "The message payload was too large. The maximum payload size is 4096 bytes.",
+	BadTopic:                  "The apns-topic was invalid.",
+	TopicDisallowed:           "Pushing to this topic is not allowed.",
+	BadMessageID:              "The apns-id value is bad.",
+	BadExpirationDate:         "The apns-expiration value is bad.",
+	BadPriority:               "The apns-priority value is bad.",
+	MissingDeviceToken:        "The device token is not specified in the request :path. Verify that the :path header contains the device token.",
+	BadDeviceToken:            "The specified device token was bad. Verify that the request contains a valid token and that the token matches the environment.",
+	DeviceTokenNotForTopic:    "The device token does not match the specified topic.",
+	Unregistered:              "The device token is inactive for the specified topic.",
+	DuplicateHeaders:          "One or more headers were repeated.",
+	BadCertificateEnvironment: "The client certificate was for the wrong environment.",
+	BadCertificate:            "The certificate was bad.",
+	Forbidden:                 "The specified action is not allowed.",
+	BadPath:                   "The request contained a bad path value.",
+	MethodNotAllowed:          "The specified :method was not POST.",
+	TooManyRequests:           "Too many requests were made consecutively to the same device token.",
+	IdleTimeout:               "Idle time out.",
+	Shutdown:                  "The server is shutting down.",
+	InternalServerError:       "An internal server error occurred.",
+	ServiceUnavailable:        "The service is unavailable.",
+	MissingTopic:              "The apns-topic header of the request was not specified and was required. The apns-topic header is mandatory when the client is connected using a certificate that supports multiple topics.",
 }
 
 // StatusCodes defines keys & descriptions.
