@@ -80,3 +80,11 @@ type Response struct {
 	Reason    string `json:"reason,omitempty"`
 	Timestamp int64  `json:"timestamp,omitempty"`
 }
+
+// ShouldRemove validates error to decide if registrationId should be deleted or not.
+func (r *Response) ShouldRemove() bool {
+	if r.Reason == BadDeviceToken || r.Reason == DeviceTokenNotForTopic || r.Reason == Unregistered {
+		return true
+	}
+	return false
+}
