@@ -70,8 +70,8 @@ var StatusCodes = map[int]string{
 // Response describes a response from Apple push server.
 type Response struct {
 	ApnsID      string
-	deviceID    string
-	deviceToken string
+	DeviceID    string
+	DeviceToken string
 
 	Status            int
 	StatusDescription string

@@ -99,8 +99,8 @@ func (c *Client) SendMessages(messages []*Message) []*Response {
 
 		// Define required info
 		response.ApnsID = message.ApnsID
-		response.deviceID = message.deviceID
-		response.deviceToken = base64.StdEncoding.EncodeToString(message.deviceToken)
+		response.DeviceID = message.deviceID
+		response.DeviceToken = base64.StdEncoding.EncodeToString(message.deviceToken)
 
 		/* Condition validation: validate encoding process */
 		if err != nil {
